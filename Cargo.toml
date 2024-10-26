@@ -1,0 +1,12 @@
+[package]
+name = "cicd"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.13.0"
+petgraph = "0.6.5"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_yaml = "0.9.34"
