@@ -1,5 +1,9 @@
+mod executor;
 mod pipeline;
+mod runner;
 
+use executor::DebugExecutor;
+use runner::Runner;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -44,9 +48,11 @@ struct Job {
 
 
 fn main() {
-    let pipeline = Pipeline::new("test");
+    let mut pipeline = Pipeline::new("test").with_stages(vec!["test".into()]);
+    pipeline.add_job("job1", "test", "cd", vec!["job2".into()]);
+    pipeline.add_job("job2", "test", "cd ..", vec![]);
     let graph = pipeline::PipelineGraph::new(pipeline);
-    let sorted_jobs = graph.jobs();
-    println!("{:?}", sorted_jobs);
-    println!("{:?}", sorted_jobs[0]);
+    let executor = DebugExecutor{};
+    let runner = Runner{};
+    runner.submit(graph, executor).unwrap();
 }

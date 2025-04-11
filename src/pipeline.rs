@@ -6,9 +6,9 @@ use std::collections::HashMap;
 /// a Node that represents a job
 #[derive(Clone, Debug, Default)]
 pub struct JobNode {
-    name: String,
-    stage: String,
-    script: Vec<String>,
+    pub name: String,
+    pub stage: String,
+    pub script: Vec<String>,
 }
 
 /// pipeline graph
@@ -62,8 +62,7 @@ impl PipelineGraph {
                             nodes.get(x).unwrap().to_owned(),
                             nodes.get(&node.name).unwrap().to_owned(),
                         )
-                    })
-                    .collect::<Vec<_>>(),
+                    }),
             );
         }
         graph.extend_with_edges(edges);
