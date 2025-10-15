@@ -1,6 +1,9 @@
 use crate::Pipeline;
 use itertools::Itertools;
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::{
+    Direction,
+    graph::{DiGraph, NodeIndex},
+};
 use std::collections::HashMap;
 
 /// a Node that represents a job
@@ -39,7 +42,13 @@ impl PipelineGraph {
                 )
             })
             .collect::<Vec<_>>();
-        jobs.sort_by_key(|(job, _)| pipeline.stages.iter().position(|x| &job.stage == x).unwrap());
+        jobs.sort_by_key(|(job, _)| {
+            pipeline
+                .stages
+                .iter()
+                .position(|x| &job.stage == x)
+                .unwrap()
+        });
         let mut graph = DiGraph::<JobNode, String>::new();
         let mut nodes: HashMap<String, NodeIndex<u32>> = HashMap::new();
         let mut deps: HashMap<String, Vec<String>> = HashMap::new();
@@ -66,10 +75,14 @@ impl PipelineGraph {
             );
         }
         graph.extend_with_edges(edges);
-        Self { graph, nodes, stages: pipeline.stages.clone() }
+        Self {
+            graph,
+            nodes,
+            stages: pipeline.stages.clone(),
+        }
     }
 
-    // returns the jobs ordered by stage, that need to be executed
+    /// returns the jobs ordered by stage that need to be executed
     pub fn jobs(&self) -> Vec<JobNode> {
         let sorted: Vec<JobNode> = petgraph::algo::toposort(&self.graph, None)
             .unwrap()
@@ -79,7 +92,32 @@ impl PipelineGraph {
                 self.graph.node_weight(x).unwrap().clone()
             })
             .collect();
-        sorted.into_iter().sorted_by_key(|k| self.stages.iter().position(|x| x == &k.stage).unwrap()).collect()
+        sorted
+            .into_iter()
+            .sorted_by_key(|k| self.stages.iter().position(|x| x == &k.stage).unwrap())
+            .collect()
+    }
+
+    pub fn job_dependencies(&self, job_name: &str) -> Vec<JobNode> {
+        let Some(job_index) = self.nodes.get(job_name) else {
+            return vec![];
+        };
+        self.graph
+            .neighbors_directed(*job_index, Direction::Outgoing)
+            .filter_map(|x| self.graph.node_weight(x))
+            .cloned()
+            .collect()
+    }
+
+    pub fn job_parents(&self, job_name: &str) -> Vec<JobNode> {
+        let Some(job_index) = self.nodes.get(job_name) else {
+            return vec![];
+        };
+        self.graph
+            .neighbors_directed(*job_index, Direction::Incoming)
+            .filter_map(|x| self.graph.node_weight(x))
+            .cloned()
+            .collect()
     }
 }
 
@@ -99,7 +137,8 @@ mod tests {
 
     #[test]
     fn test_jobs_order_respected_across_stages() {
-        let mut pipeline = Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
+        let mut pipeline =
+            Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
         pipeline.add_job("job1", "stage1", "", vec![]);
         pipeline.add_job("job2", "stage2", "", vec![]);
         pipeline.add_job("job3", "stage1", "", vec![]);
@@ -108,5 +147,15 @@ mod tests {
         assert_eq!(jobs.next().unwrap().stage, String::from("stage1"));
         assert_eq!(jobs.next().unwrap().stage, String::from("stage1"));
         assert_eq!(jobs.next().unwrap().stage, String::from("stage2"))
+    }
+
+    #[test]
+    fn test_job_dependencies() {
+        let mut pipeline =
+            Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
+        pipeline.add_job("job1", "stage1", "", vec![]);
+        pipeline.add_job("job2", "stage2", "", vec!["job1".to_string()]);
+        let graph = PipelineGraph::new(pipeline);
+        assert_eq!(graph.job_dependencies("job1").len(), 1)
     }
 }

@@ -14,19 +14,22 @@ struct Pipeline {
 }
 
 impl Pipeline {
+    #[cfg(test)]
     pub fn new(name: &str) -> Self {
         Self {
-             name: name.into(),
+            name: name.into(),
             stages: Vec::new(),
             jobs: Vec::new(),
         }
     }
 
+    #[cfg(test)]
     pub fn with_stages(mut self, stages: Vec<String>) -> Self {
         self.stages = stages;
         self
     }
 
+    #[cfg(test)]
     pub fn add_job(&mut self, name: &str, stage: &str, script: &str, needs: Vec<String>) {
         let job = Job {
             name: name.into(),
@@ -46,13 +49,13 @@ struct Job {
     stage: String,
 }
 
-
-fn main() {
-    let mut pipeline = Pipeline::new("test").with_stages(vec!["test".into()]);
-    pipeline.add_job("job1", "test", "cd", vec!["job2".into()]);
-    pipeline.add_job("job2", "test", "cd ..", vec![]);
+#[tokio::main]
+async fn main() {
+    let pipeline = serde_yml::from_str(&std::fs::read_to_string("pipeline.yaml").unwrap())
+        .expect("Failed to validate yaml.");
     let graph = pipeline::PipelineGraph::new(pipeline);
-    let executor = DebugExecutor{};
-    let runner = Runner{};
-    runner.submit(graph, executor).unwrap();
+    let executor = executor::docker::DockerExecutor::new();
+    let runner = Runner::new(graph);
+    runner.submit(executor).await.unwrap();
+    println!("{:?}", runner);
 }
