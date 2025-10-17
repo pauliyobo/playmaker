@@ -12,6 +12,7 @@ pub struct JobNode {
     pub name: String,
     pub stage: String,
     pub script: Vec<String>,
+    pub image: Option<String>,
 }
 
 /// pipeline graph
@@ -37,6 +38,7 @@ impl PipelineGraph {
                         name: job.name.clone(),
                         script: job.script.clone(),
                         stage: job.stage.clone(),
+                        image: job.image.clone(),
                     },
                     job.needs.clone(),
                 )

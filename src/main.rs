@@ -2,7 +2,6 @@ mod executor;
 mod pipeline;
 mod runner;
 
-use executor::DebugExecutor;
 use runner::Runner;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +35,7 @@ impl Pipeline {
             script: script.split("\n").map(|x| x.to_string()).collect(),
             needs,
             stage: stage.into(),
+            image: None,
         };
         self.jobs.push(job);
     }
@@ -47,6 +47,7 @@ struct Job {
     script: Vec<String>,
     needs: Vec<String>,
     stage: String,
+    image: Option<String>,
 }
 
 #[tokio::main]
@@ -57,5 +58,4 @@ async fn main() {
     let executor = executor::docker::DockerExecutor::new();
     let runner = Runner::new(graph);
     runner.submit(executor).await.unwrap();
-    println!("{:?}", runner);
 }

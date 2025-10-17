@@ -1,8 +1,11 @@
 //! Unit that handles orchestration of executors
 use crate::executor::Executor;
-use crate::pipeline::PipelineGraph;
+use crate::pipeline::{JobNode, PipelineGraph};
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::task::JoinSet;
+use tokio::time::sleep;
 
 /// State for a Job
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -20,6 +23,19 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// Returns true when there are jobs that are still waiting to be run
+    pub fn jobs_available(&self) -> bool {
+        self.states.iter().any(|x| x.value() == &JobState::Pending)
+    }
+
+    pub fn jobs(&self) -> Vec<JobNode> {
+        self.graph
+            .jobs()
+            .into_iter()
+            .filter(|x| *self.states.get(&x.name).unwrap().value() == JobState::Pending)
+            .collect()
+    }
+
     pub fn is_ready(&self, job_name: &str) -> bool {
         let parents = self.graph.job_parents(job_name);
         if parents.is_empty() {
@@ -42,19 +58,34 @@ impl Runner {
         }
     }
 
-    pub async fn submit<E: Executor>(&self, executor: E) -> anyhow::Result<()> {
-        for job in self.graph.jobs() {
-            let job_name = job.name.clone();
-            if !self.is_ready(&job_name) {
-                println!("Job {job_name} not ready.");
+    pub async fn submit<E: Executor + Send>(&self, executor: E) -> anyhow::Result<()> {
+        while self.jobs_available() {
+            let mut tasks = JoinSet::new();
+            for job in self.jobs() {
+                let job_name = job.name.clone();
+                if !self.is_ready(&job_name) {
+                    println!("Waiting for {job_name} to become ready.");
+                    continue;
+                }
+                if let Some(mut entry) = self.states.get_mut(&job.name) {
+                    *entry.value_mut() = JobState::Running;
+                }
+                let executor = executor.clone();
+                let states = self.states.clone();
+                let task = async move {
+                    match executor.execute(job).await {
+                        Ok(_) => {
+                            *states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete
+                        }
+                        Err(_) => {
+                            *states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed
+                        }
+                    };
+                };
+                tasks.spawn(task);
             }
-            if let Some(mut entry) = self.states.get_mut(&job.name) {
-                *entry.value_mut() = JobState::Running;
-            }
-            match executor.execute(job).await {
-                Ok(_) => *self.states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete,
-                Err(_) => *self.states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed,
-            }
+            tasks.join_all().await;
+            sleep(Duration::from_secs(3)).await;
         }
         Ok(())
     }
