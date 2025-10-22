@@ -25,6 +25,8 @@ impl DockerExecutor {
     }
 
     async fn exec_command(&self, id: &str, cmd: &[&str]) -> anyhow::Result<()> {
+        let mut script = String::from("set -e\n");
+        script.push_str(&cmd.join("\n"));
         let exec = self
             .client
             .create_exec(
@@ -34,16 +36,14 @@ impl DockerExecutor {
                     attach_stdin: Some(true),
                     attach_stdout: Some(true),
                     tty: Some(true),
-                    cmd: Some(vec!["/bin/sh".to_string()]),
+                    cmd: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script]),
                     ..Default::default()
                 },
             )
             .await?
             .id;
-        if let StartExecResults::Attached {
-            mut output,
-            mut input,
-        } = self.client.start_exec(&exec, None).await?
+        if let StartExecResults::Attached { mut output, .. } =
+            self.client.start_exec(&exec, None).await?
         {
             let read_task = async move {
                 while let Some(msg) = output.next().await {
@@ -53,7 +53,7 @@ impl DockerExecutor {
                     }
                 }
             };
-            let write_task = async move {
+            /* let write_task = async move {
                 for item in cmd {
                     input
                         .write_all(format!("{item}\n").as_bytes())
@@ -61,8 +61,15 @@ impl DockerExecutor {
                         .expect("Failed to write command");
                 }
                 input.write_all(b"exit\n").await.unwrap();
-            };
-            tokio::join!(write_task, read_task);
+            };*/
+            tokio::join!(read_task);
+        }
+        let inspect = self.client.inspect_exec(&exec).await?;
+        let Some(status) = inspect.exit_code else {
+            anyhow::bail!("Failed to inspect exec");
+        };
+        if status != 0 {
+            anyhow::bail!("Job failed.");
         }
         Ok(())
     }
@@ -100,15 +107,16 @@ impl Executor for DockerExecutor {
             .start_container(&id.id, None::<StartContainerOptions>)
             .await?;
         println!("Started container {}", id.id);
-        self.exec_command(
-            &id.id,
-            job.script
-                .iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-        .await?;
+        let res = self
+            .exec_command(
+                &id.id,
+                job.script
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .await;
         println!("Removing container {}", &id.id);
         self.client
             .remove_container(
@@ -116,6 +124,7 @@ impl Executor for DockerExecutor {
                 Some(RemoveContainerOptionsBuilder::default().force(true).build()),
             )
             .await?;
+        res?;
         Ok(())
     }
 }

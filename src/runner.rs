@@ -16,6 +16,7 @@ pub enum JobState {
     Complete,
 }
 
+/// A job Runner responsible for orchestrating and executing jobs and managing
 #[derive(Debug)]
 pub struct Runner {
     graph: PipelineGraph,
@@ -36,14 +37,24 @@ impl Runner {
             .collect()
     }
 
-    pub fn is_ready(&self, job_name: &str) -> bool {
+    pub fn all_parents_match(&self, job_name: &str, state: JobState) -> bool {
         let parents = self.graph.job_parents(job_name);
         if parents.is_empty() {
             return true;
         }
         parents
             .iter()
-            .all(|x| *self.states.get(&x.name).unwrap().value() == JobState::Complete)
+            .all(|x| *self.states.get(&x.name).unwrap().value() == state)
+    }
+
+    pub fn any_parents_match(&self, job_name: &str, state: JobState) -> bool {
+        let parents = self.graph.job_parents(job_name);
+        if parents.is_empty() {
+            return false;
+        }
+        parents
+            .iter()
+            .any(|x| *self.states.get(&x.name).unwrap().value() == state)
     }
 
     pub fn new(graph: PipelineGraph) -> Self {
@@ -63,7 +74,14 @@ impl Runner {
             let mut tasks = JoinSet::new();
             for job in self.jobs() {
                 let job_name = job.name.clone();
-                if !self.is_ready(&job_name) {
+                if self.any_parents_match(&job_name, JobState::Failed) {
+                    println!(
+                        "Marking {job_name} as failed since one of the jobs it depends on has failed."
+                    );
+                    *self.states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed;
+                    continue;
+                }
+                if !self.all_parents_match(&job_name, JobState::Complete) {
                     println!("Waiting for {job_name} to become ready.");
                     continue;
                 }
@@ -87,6 +105,7 @@ impl Runner {
             tasks.join_all().await;
             sleep(Duration::from_secs(3)).await;
         }
+        println!("{:?}", self.states);
         Ok(())
     }
 }
