@@ -1,5 +1,6 @@
 //! Unit that handles orchestration of executors
-use crate::executor::Executor;
+use crate::Pipeline;
+use crate::executor::{ExecutionContext, Executor};
 use crate::pipeline::{JobNode, PipelineGraph};
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -24,6 +25,10 @@ pub struct Runner {
 }
 
 impl Runner {
+    pub fn build_context(&self, job: &JobNode) -> ExecutionContext {
+        ExecutionContext { job: job.clone() }
+    }
+
     /// Returns true when there are jobs that are still waiting to be run
     pub fn jobs_available(&self) -> bool {
         self.states.iter().any(|x| x.value() == &JobState::Pending)
@@ -57,7 +62,8 @@ impl Runner {
             .any(|x| *self.states.get(&x.name).unwrap().value() == state)
     }
 
-    pub fn new(graph: PipelineGraph) -> Self {
+    pub fn new(pipeline: Pipeline) -> Self {
+        let graph = PipelineGraph::new(pipeline);
         let states = graph
             .jobs()
             .iter()
@@ -88,10 +94,11 @@ impl Runner {
                 if let Some(mut entry) = self.states.get_mut(&job.name) {
                     *entry.value_mut() = JobState::Running;
                 }
+                let ctx = self.build_context(&job);
                 let executor = executor.clone();
                 let states = self.states.clone();
                 let task = async move {
-                    match executor.execute(job).await {
+                    match executor.execute(&ctx).await {
                         Ok(_) => {
                             *states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete
                         }

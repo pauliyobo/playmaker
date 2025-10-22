@@ -61,8 +61,7 @@ struct Job {
 async fn main() {
     let pipeline = serde_yml::from_str(&std::fs::read_to_string("pipeline.yaml").unwrap())
         .expect("Failed to validate yaml.");
-    let graph = pipeline::PipelineGraph::new(pipeline);
     let executor = executor::docker::DockerExecutor::new();
-    let runner = Runner::new(graph);
+    let runner = Runner::new(pipeline);
     runner.submit(executor).await.unwrap();
 }

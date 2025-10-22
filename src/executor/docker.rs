@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::Executor;
+use super::{ExecutionContext, Executor};
 use bollard::{
     Docker,
     exec::StartExecResults,
@@ -79,7 +79,8 @@ impl DockerExecutor {
 
 #[async_trait::async_trait]
 impl Executor for DockerExecutor {
-    async fn execute(&self, job: crate::pipeline::JobNode) -> anyhow::Result<()> {
+    async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<()> {
+        let job = ctx.job.clone();
         println!("Creating image");
         let image = job.image.unwrap_or(IMAGE.to_string());
         self.client
