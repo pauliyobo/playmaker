@@ -36,9 +36,15 @@ impl Pipeline {
             needs,
             stage: stage.into(),
             image: None,
+            artifacts: None,
         };
         self.jobs.push(job);
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Artifact {
+    paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -48,6 +54,7 @@ struct Job {
     needs: Vec<String>,
     stage: String,
     image: Option<String>,
+    artifacts: Option<Vec<Artifact>>,
 }
 
 #[tokio::main]

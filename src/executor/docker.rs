@@ -1,11 +1,13 @@
+use std::fs;
+
 use super::Executor;
 use bollard::{
     Docker,
     exec::StartExecResults,
     models::ContainerCreateBody,
     query_parameters::{
-        CreateContainerOptions, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
-        StartContainerOptions,
+        CreateContainerOptions, CreateImageOptionsBuilder, DownloadFromContainerOptionsBuilder,
+        RemoveContainerOptionsBuilder, StartContainerOptions,
     },
 };
 use futures_util::{StreamExt, TryStreamExt};
@@ -107,6 +109,7 @@ impl Executor for DockerExecutor {
             .start_container(&id.id, None::<StartContainerOptions>)
             .await?;
         println!("Started container {}", id.id);
+        // we don't unwrap the result now because we want the container to be cleaned up properly
         let res = self
             .exec_command(
                 &id.id,
@@ -117,6 +120,30 @@ impl Executor for DockerExecutor {
                     .as_slice(),
             )
             .await;
+        if let Some(artifacts) = job.artifacts {
+            for artifact in artifacts {
+                for path in artifact.paths {
+                    let options = DownloadFromContainerOptionsBuilder::new()
+                        .path(&path)
+                        .build();
+                    match self
+                        .client
+                        .download_from_container(&id.id, Some(options))
+                        .try_next()
+                        .await
+                    {
+                        Ok(stream) => {
+                            if let Some(body) = stream {
+                                fs::write("artifact.tar", body.to_vec())?;
+                            }
+                        }
+                        Err(e) => {
+                            println!("Failed to copy artifact, {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
         println!("Removing container {}", &id.id);
         self.client
             .remove_container(

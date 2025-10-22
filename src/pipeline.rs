@@ -1,4 +1,4 @@
-use crate::Pipeline;
+use crate::{Artifact, Pipeline};
 use itertools::Itertools;
 use petgraph::{
     Direction,
@@ -13,6 +13,7 @@ pub struct JobNode {
     pub stage: String,
     pub script: Vec<String>,
     pub image: Option<String>,
+    pub artifacts: Option<Vec<Artifact>>,
 }
 
 /// pipeline graph
@@ -39,6 +40,7 @@ impl PipelineGraph {
                         script: job.script.clone(),
                         stage: job.stage.clone(),
                         image: job.image.clone(),
+                        artifacts: job.artifacts.clone(),
                     },
                     job.needs.clone(),
                 )
