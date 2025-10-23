@@ -1,4 +1,5 @@
 mod executor;
+mod models;
 mod pipeline;
 mod runner;
 

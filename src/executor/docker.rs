@@ -1,17 +1,20 @@
-use std::fs;
+use std::{fs, path::PathBuf};
+
+use crate::{executor::ExecutionResult, models::ArtifactRef};
 
 use super::{ExecutionContext, Executor};
+use anyhow::Context;
 use bollard::{
     Docker,
     exec::StartExecResults,
     models::ContainerCreateBody,
     query_parameters::{
         CreateContainerOptions, CreateImageOptionsBuilder, DownloadFromContainerOptionsBuilder,
-        RemoveContainerOptionsBuilder, StartContainerOptions,
+        RemoveContainerOptionsBuilder, StartContainerOptions, UploadToContainerOptionsBuilder,
     },
 };
+use bytes::Bytes;
 use futures_util::{StreamExt, TryStreamExt};
-use tokio::io::AsyncWriteExt;
 
 const IMAGE: &str = "alpine:3";
 
@@ -79,7 +82,8 @@ impl DockerExecutor {
 
 #[async_trait::async_trait]
 impl Executor for DockerExecutor {
-    async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<()> {
+    async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult> {
+        let mut artifact_refs = Vec::new();
         let job = ctx.job.clone();
         println!("Creating image");
         let image = job.image.unwrap_or(IMAGE.to_string());
@@ -94,7 +98,8 @@ impl Executor for DockerExecutor {
                 None,
             )
             .try_collect::<Vec<_>>()
-            .await?;
+            .await
+            .context("Failed to create image")?;
         let container_config = ContainerCreateBody {
             image: Some(image),
             tty: Some(true),
@@ -110,6 +115,30 @@ impl Executor for DockerExecutor {
             .start_container(&id.id, None::<StartContainerOptions>)
             .await?;
         println!("Started container {}", id.id);
+        for dep in ctx.dependencies.iter() {
+            let mut buf = PathBuf::from(&dep.path);
+            if buf.file_name().is_some() {
+                buf.pop();
+            }
+            let opts = UploadToContainerOptionsBuilder::new()
+                .path(buf.to_str().unwrap())
+                .build();
+            let data = tokio::fs::read(&dep.host_path).await?;
+            let bytes = Bytes::copy_from_slice(data.as_slice());
+            let body = bollard::body_full(bytes);
+            match self
+                .client
+                .upload_to_container(&id.id, Some(opts), body)
+                .await
+                .context("failed to upload artifact inside container")
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("Failed to upload artifact to container, {:?}", e);
+                    continue;
+                }
+            }
+        }
         // we don't unwrap the result now because we want the container to be cleaned up properly
         let res = self
             .exec_command(
@@ -122,6 +151,8 @@ impl Executor for DockerExecutor {
             )
             .await;
         if let Some(artifacts) = job.artifacts {
+            ctx.ensure_artifacts()
+                .context("Failed to create artifacts directory")?;
             for artifact in artifacts {
                 for path in artifact.paths {
                     let options = DownloadFromContainerOptionsBuilder::new()
@@ -135,7 +166,14 @@ impl Executor for DockerExecutor {
                     {
                         Ok(stream) => {
                             if let Some(body) = stream {
-                                fs::write("artifact.tar", body.to_vec())?;
+                                let dest = ctx
+                                    .artifacts_dir
+                                    .join(format!("{}/artifacts.tar", job.name));
+                                fs::write(&dest, body.to_vec())?;
+                                artifact_refs.push(ArtifactRef {
+                                    host_path: dest,
+                                    path,
+                                });
                             }
                         }
                         Err(e) => {
@@ -153,6 +191,8 @@ impl Executor for DockerExecutor {
             )
             .await?;
         res?;
-        Ok(())
+        Ok(ExecutionResult {
+            artifacts: artifact_refs,
+        })
     }
 }

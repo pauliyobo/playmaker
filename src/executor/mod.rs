@@ -1,14 +1,42 @@
 //! Unit that handles job execution
 pub mod docker;
-use crate::pipeline::JobNode;
+use std::{fs, path::PathBuf};
+
+use crate::{models::ArtifactRef, pipeline::JobNode};
 
 /// An execution context responsible for keeping information useful to a JobNode
 #[derive(Clone, Debug)]
 pub struct ExecutionContext {
+    /// Node associated to this context
     pub job: JobNode,
+    /// Directory in which artifacts will be placed
+    pub artifacts_dir: PathBuf,
+    /// list of references of artifacts that are collected from previous jobs from which the current one depends
+    pub dependencies: Vec<ArtifactRef>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExecutionResult {
+    pub artifacts: Vec<ArtifactRef>,
+}
+
+impl ExecutionContext {
+    /// returns the artifact directory dedicated to the job
+    pub fn artifact_path(&self) -> PathBuf {
+        self.artifacts_dir.join(&self.job.name)
+    }
+
+    /// ensures that the artifacts dir exists
+    pub fn ensure_artifacts(&self) -> anyhow::Result<()> {
+        if self.artifact_path().exists() {
+            return Ok(());
+        }
+        fs::create_dir_all(&self.artifact_path())?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 pub trait Executor: Clone + Send + Sync + 'static {
-    async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<()>;
+    async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult>;
 }

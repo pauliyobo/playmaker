@@ -1,8 +1,10 @@
 //! Unit that handles orchestration of executors
 use crate::Pipeline;
 use crate::executor::{ExecutionContext, Executor};
+use crate::models::ArtifactRef;
 use crate::pipeline::{JobNode, PipelineGraph};
 use dashmap::DashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -22,11 +24,28 @@ pub enum JobState {
 pub struct Runner {
     graph: PipelineGraph,
     states: Arc<DashMap<String, JobState>>,
+    artifact_refs: Arc<DashMap<String, Vec<ArtifactRef>>>,
 }
 
 impl Runner {
     pub fn build_context(&self, job: &JobNode) -> ExecutionContext {
-        ExecutionContext { job: job.clone() }
+        let parents = self.graph.job_parents(&job.name);
+        let dependencies = parents.into_iter().fold(vec![], |mut acc, x| {
+            let deps = {
+                if let Some(value) = self.artifact_refs.get(&x.name) {
+                    value.value().clone()
+                } else {
+                    vec![]
+                }
+            };
+            acc.extend(deps);
+            acc
+        });
+        ExecutionContext {
+            job: job.clone(),
+            artifacts_dir: PathBuf::from("artifacts"),
+            dependencies,
+        }
     }
 
     /// Returns true when there are jobs that are still waiting to be run
@@ -72,6 +91,7 @@ impl Runner {
         Self {
             graph,
             states: Arc::new(states),
+            artifact_refs: Arc::new(DashMap::new()),
         }
     }
 
@@ -97,17 +117,22 @@ impl Runner {
                 let ctx = self.build_context(&job);
                 let executor = executor.clone();
                 let states = self.states.clone();
+                let artifact_refs = self.artifact_refs.clone();
                 let task = async move {
                     match executor.execute(&ctx).await {
-                        Ok(_) => {
-                            *states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete
+                        Ok(res) => {
+                            *states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete;
+                            artifact_refs
+                                .entry(job_name)
+                                .and_modify(|v| v.extend(res.artifacts.clone()))
+                                .or_insert(res.artifacts);
                         }
                         Err(_) => {
                             *states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed
                         }
                     };
                 };
-                tasks.spawn(task);
+                tasks.spawn(Box::pin(task));
             }
             tasks.join_all().await;
             sleep(Duration::from_secs(3)).await;
