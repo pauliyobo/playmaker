@@ -1,6 +1,6 @@
 //! Unit that handles job execution
 pub mod docker;
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use crate::{models::ArtifactRef, pipeline::JobNode};
 
@@ -33,6 +33,13 @@ impl ExecutionContext {
         }
         fs::create_dir_all(&self.artifact_path())?;
         Ok(())
+    }
+
+    /// Returns the environment variables that will be injected inside the executor
+    pub fn environment_variables(&self) -> HashMap<String, String> {
+        let mut predefined = HashMap::from([("JOB_ID".to_string(), self.job.name.clone())]);
+        predefined.extend(self.job.variables.clone().unwrap_or_default().into_iter());
+        predefined
     }
 }
 

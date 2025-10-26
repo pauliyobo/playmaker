@@ -87,6 +87,11 @@ impl Executor for DockerExecutor {
         let job = ctx.job.clone();
         println!("Creating image");
         let image = job.image.unwrap_or(IMAGE.to_string());
+        let env = ctx
+            .environment_variables()
+            .into_iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>();
         self.client
             .create_image(
                 Some(
@@ -104,6 +109,7 @@ impl Executor for DockerExecutor {
             image: Some(image),
             tty: Some(true),
             entrypoint: Some(vec!["/bin/sh".into()]),
+            env: Some(env),
             ..Default::default()
         };
         let id = self

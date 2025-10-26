@@ -145,8 +145,8 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::executor::{ExecutionContext, ExecutionResult, Executor};
     use crate::Pipeline;
+    use crate::executor::{ExecutionContext, ExecutionResult, Executor};
 
     #[derive(Clone)]
     struct MockExecutor {
@@ -168,7 +168,12 @@ mod tests {
     #[async_trait::async_trait]
     impl Executor for MockExecutor {
         async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult> {
-            if self.should_fail.get(&ctx.job.name).map(|v| *v.value()).unwrap_or(false) {
+            if self
+                .should_fail
+                .get(&ctx.job.name)
+                .map(|v| *v.value())
+                .unwrap_or(false)
+            {
                 anyhow::bail!("Job {} failed", ctx.job.name);
             }
             Ok(ExecutionResult { artifacts: vec![] })
@@ -186,16 +191,26 @@ mod tests {
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("job1").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("job2").unwrap().value(), JobState::Complete);
+        assert_eq!(
+            *runner.states.get("job1").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("job2").unwrap().value(),
+            JobState::Complete
+        );
     }
 
     #[tokio::test]
     async fn test_runner_job_failure_propagates_to_dependents() {
-        let mut pipeline = Pipeline::new("test")
-            .with_stages(vec!["build".into(), "test".into()]);
+        let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
         pipeline.add_job("build-job", "build", "echo build", vec![]);
-        pipeline.add_job("test-job", "test", "echo test", vec!["build-job".to_string()]);
+        pipeline.add_job(
+            "test-job",
+            "test",
+            "echo test",
+            vec!["build-job".to_string()],
+        );
 
         let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
@@ -203,8 +218,14 @@ mod tests {
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("build-job").unwrap().value(), JobState::Failed);
-        assert_eq!(*runner.states.get("test-job").unwrap().value(), JobState::Failed);
+        assert_eq!(
+            *runner.states.get("build-job").unwrap().value(),
+            JobState::Failed
+        );
+        assert_eq!(
+            *runner.states.get("test-job").unwrap().value(),
+            JobState::Failed
+        );
     }
 
     #[tokio::test]
@@ -219,40 +240,70 @@ mod tests {
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("parallel1").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("parallel2").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("parallel3").unwrap().value(), JobState::Complete);
+        assert_eq!(
+            *runner.states.get("parallel1").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("parallel2").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("parallel3").unwrap().value(),
+            JobState::Complete
+        );
     }
 
     #[tokio::test]
     async fn test_runner_multi_stage_with_dependencies() {
-        let mut pipeline = Pipeline::new("test")
-            .with_stages(vec!["build".into(), "test".into(), "deploy".into()]);
+        let mut pipeline =
+            Pipeline::new("test").with_stages(vec!["build".into(), "test".into(), "deploy".into()]);
 
         pipeline.add_job("build", "build", "echo build", vec![]);
         pipeline.add_job("test1", "test", "echo test1", vec!["build".to_string()]);
         pipeline.add_job("test2", "test", "echo test2", vec!["build".to_string()]);
-        pipeline.add_job("deploy", "deploy", "echo deploy", vec!["test1".to_string(), "test2".to_string()]);
+        pipeline.add_job(
+            "deploy",
+            "deploy",
+            "echo deploy",
+            vec!["test1".to_string(), "test2".to_string()],
+        );
 
         let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("build").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("test1").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("test2").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("deploy").unwrap().value(), JobState::Complete);
+        assert_eq!(
+            *runner.states.get("build").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("test1").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("test2").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("deploy").unwrap().value(),
+            JobState::Complete
+        );
     }
 
     #[tokio::test]
     async fn test_runner_partial_failure_with_multiple_parents() {
-        let mut pipeline = Pipeline::new("test")
-            .with_stages(vec!["build".into(), "test".into()]);
+        let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
 
         pipeline.add_job("build1", "build", "echo build1", vec![]);
         pipeline.add_job("build2", "build", "echo build2", vec![]);
-        pipeline.add_job("test", "test", "echo test", vec!["build1".to_string(), "build2".to_string()]);
+        pipeline.add_job(
+            "test",
+            "test",
+            "echo test",
+            vec!["build1".to_string(), "build2".to_string()],
+        );
 
         let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
@@ -260,9 +311,18 @@ mod tests {
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("build1").unwrap().value(), JobState::Failed);
-        assert_eq!(*runner.states.get("build2").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("test").unwrap().value(), JobState::Failed);
+        assert_eq!(
+            *runner.states.get("build1").unwrap().value(),
+            JobState::Failed
+        );
+        assert_eq!(
+            *runner.states.get("build2").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("test").unwrap().value(),
+            JobState::Failed
+        );
     }
 
     #[test]
@@ -283,8 +343,7 @@ mod tests {
 
     #[test]
     fn test_build_context_includes_parent_artifacts() {
-        let mut pipeline = Pipeline::new("test")
-            .with_stages(vec!["build".into(), "test".into()]);
+        let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
 
         pipeline.add_job("build", "build", "echo build", vec![]);
         pipeline.add_job("test", "test", "echo test", vec!["build".to_string()]);
@@ -300,7 +359,12 @@ mod tests {
             }],
         );
 
-        let test_job = runner.graph.jobs().into_iter().find(|j| j.name == "test").unwrap();
+        let test_job = runner
+            .graph
+            .jobs()
+            .into_iter()
+            .find(|j| j.name == "test")
+            .unwrap();
         let ctx = runner.build_context(&test_job);
 
         assert_eq!(ctx.dependencies.len(), 1);
@@ -309,22 +373,42 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_diamond_dependency() {
-        let mut pipeline = Pipeline::new("test")
-            .with_stages(vec!["stage1".into(), "stage2".into(), "stage3".into()]);
+        let mut pipeline = Pipeline::new("test").with_stages(vec![
+            "stage1".into(),
+            "stage2".into(),
+            "stage3".into(),
+        ]);
 
         pipeline.add_job("root", "stage1", "echo root", vec![]);
         pipeline.add_job("left", "stage2", "echo left", vec!["root".to_string()]);
         pipeline.add_job("right", "stage2", "echo right", vec!["root".to_string()]);
-        pipeline.add_job("merge", "stage3", "echo merge", vec!["left".to_string(), "right".to_string()]);
+        pipeline.add_job(
+            "merge",
+            "stage3",
+            "echo merge",
+            vec!["left".to_string(), "right".to_string()],
+        );
 
         let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
 
         runner.submit(executor).await.unwrap();
 
-        assert_eq!(*runner.states.get("root").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("left").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("right").unwrap().value(), JobState::Complete);
-        assert_eq!(*runner.states.get("merge").unwrap().value(), JobState::Complete);
+        assert_eq!(
+            *runner.states.get("root").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("left").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("right").unwrap().value(),
+            JobState::Complete
+        );
+        assert_eq!(
+            *runner.states.get("merge").unwrap().value(),
+            JobState::Complete
+        );
     }
 }

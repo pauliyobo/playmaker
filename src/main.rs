@@ -3,6 +3,8 @@ mod models;
 mod pipeline;
 mod runner;
 
+use std::collections::HashMap;
+
 use runner::Runner;
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +40,7 @@ impl Pipeline {
             stage: stage.into(),
             image: None,
             artifacts: None,
+            ..Default::default()
         };
         self.jobs.push(job);
     }
@@ -56,6 +59,7 @@ struct Job {
     stage: String,
     image: Option<String>,
     artifacts: Option<Vec<Artifact>>,
+    variables: Option<HashMap<String, String>>,
 }
 
 #[tokio::main]
