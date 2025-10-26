@@ -82,7 +82,7 @@ impl Runner {
     }
 
     pub fn new(pipeline: Pipeline) -> Self {
-        let graph = PipelineGraph::new(pipeline);
+        let graph = PipelineGraph::new(pipeline).expect("Failed to create pipeline");
         let states = graph
             .jobs()
             .iter()
