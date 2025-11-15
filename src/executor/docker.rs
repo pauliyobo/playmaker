@@ -1,6 +1,5 @@
-use std::{fs, path::PathBuf};
-
 use crate::{executor::ExecutionResult, models::ArtifactRef};
+use std::{fs, path::PathBuf};
 
 use super::{ExecutionContext, Executor};
 use anyhow::Context;
@@ -164,28 +163,19 @@ impl Executor for DockerExecutor {
                     let options = DownloadFromContainerOptionsBuilder::new()
                         .path(&path)
                         .build();
-                    match self
-                        .client
-                        .download_from_container(&id.id, Some(options))
-                        .try_next()
-                        .await
-                    {
-                        Ok(stream) => {
-                            if let Some(body) = stream {
-                                let dest = ctx
-                                    .artifacts_dir
-                                    .join(format!("{}/artifacts.tar", job.name));
-                                fs::write(&dest, body.to_vec())?;
-                                artifact_refs.push(ArtifactRef {
-                                    host_path: dest,
-                                    path,
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            println!("Failed to copy artifact, {:?}", e);
-                        }
+                    let mut buffer = Vec::new();
+                    let mut stream = self.client.download_from_container(&id.id, Some(options));
+                    while let Some(Ok(body)) = stream.next().await {
+                        buffer.extend(body.to_vec());
                     }
+                    let dest = ctx
+                        .artifacts_dir
+                        .join(format!("{}/artifacts.tar", job.name));
+                    fs::write(&dest, buffer)?;
+                    artifact_refs.push(ArtifactRef {
+                        host_path: dest,
+                        path,
+                    });
                 }
             }
         }
