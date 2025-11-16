@@ -14,6 +14,7 @@ use bollard::{
 };
 use bytes::Bytes;
 use futures_util::{StreamExt, TryStreamExt};
+use tokio::{fs::File, io::AsyncWriteExt};
 
 const IMAGE: &str = "alpine:3";
 
@@ -163,15 +164,14 @@ impl Executor for DockerExecutor {
                     let options = DownloadFromContainerOptionsBuilder::new()
                         .path(&path)
                         .build();
-                    let mut buffer = Vec::new();
-                    let mut stream = self.client.download_from_container(&id.id, Some(options));
-                    while let Some(Ok(body)) = stream.next().await {
-                        buffer.extend(body.to_vec());
-                    }
                     let dest = ctx
                         .artifacts_dir
                         .join(format!("{}/artifacts.tar", job.name));
-                    fs::write(&dest, buffer)?;
+                    let mut file = File::create(dest.as_path()).await?;
+                    let mut stream = self.client.download_from_container(&id.id, Some(options));
+                    while let Some(Ok(body)) = stream.next().await {
+                        file.write_all(&body).await?;
+                    }
                     artifact_refs.push(ArtifactRef {
                         host_path: dest,
                         path,
