@@ -15,6 +15,7 @@ futures-util = "0.3.31"
 itertools = "0.13.0"
 petgraph = "0.6.5"
 serde = { version = "1.0.210", features = ["derive"] }
-serde_yml = "0.0.12"
+serde-saphyr = "0.0.12"
 thiserror = "2.0.17"
-tokio = { version = "1.48.0", features = ["fs", "macros", "rt-multi-thread"] }
+tokio = { version = "1.48.0", features = ["fs", "macros", "rt-multi-thread", "signal"] }
+tokio-util = "0.7.17"
