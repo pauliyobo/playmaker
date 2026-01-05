@@ -3,10 +3,11 @@ mod models;
 mod pipeline;
 mod runner;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use runner::Runner;
 use serde::{Deserialize, Serialize};
+use tokio::signal;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Pipeline {
@@ -64,9 +65,21 @@ struct Job {
 
 #[tokio::main]
 async fn main() {
-    let pipeline = serde_yml::from_str(&std::fs::read_to_string("pipeline.yaml").unwrap())
+    let pipeline = serde_saphyr::from_str(&std::fs::read_to_string("pipeline.yaml").unwrap())
         .expect("Failed to validate yaml.");
     let executor = executor::docker::DockerExecutor::new();
-    let runner = Runner::new(pipeline);
-    runner.submit(executor).await.unwrap();
+    let runner = Arc::new(Runner::new(pipeline, executor));
+    let runner2 = runner.clone();
+    tokio::select! {
+        result = tokio::spawn(async move {
+            let runner = runner2.clone();
+            runner.run().await
+        }) => {
+            result.unwrap().unwrap();
+        }
+        _ = signal::ctrl_c() => {
+            println!("Graceful shutdown");
+            runner.cancel().await.unwrap();
+        }
+    }
 }

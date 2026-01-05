@@ -6,9 +6,19 @@ use crate::pipeline::{JobNode, PipelineGraph};
 use dashmap::DashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
+
+static MASTER_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
+
+pub(crate) fn master_token() -> CancellationToken {
+    MASTER_TOKEN
+        .get_or_init(|| CancellationToken::new())
+        .clone()
+}
 
 /// State for a Job
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -17,17 +27,20 @@ pub enum JobState {
     Running,
     Failed,
     Complete,
+    Cancelled,
 }
 
 /// A job Runner responsible for orchestrating and executing jobs and managing
-#[derive(Debug)]
-pub struct Runner {
+#[derive(Clone, Debug)]
+pub struct Runner<E: Executor> {
     graph: PipelineGraph,
     states: Arc<DashMap<String, JobState>>,
     artifact_refs: Arc<DashMap<String, Vec<ArtifactRef>>>,
+    executor: E,
+    token: CancellationToken,
 }
 
-impl Runner {
+impl<E: Executor> Runner<E> {
     pub fn build_context(&self, job: &JobNode) -> ExecutionContext {
         let parents = self.graph.job_parents(&job.name);
         let dependencies = parents.into_iter().fold(vec![], |mut acc, x| {
@@ -81,7 +94,7 @@ impl Runner {
             .any(|x| *self.states.get(&x.name).unwrap().value() == state)
     }
 
-    pub fn new(pipeline: Pipeline) -> Self {
+    pub fn new(pipeline: Pipeline, executor: E) -> Self {
         let graph = PipelineGraph::new(pipeline).expect("Failed to create pipeline");
         let states = graph
             .jobs()
@@ -92,10 +105,13 @@ impl Runner {
             graph,
             states: Arc::new(states),
             artifact_refs: Arc::new(DashMap::new()),
+            executor,
+            token: master_token(),
         }
     }
 
-    pub async fn submit<E: Executor + Send>(&self, executor: E) -> anyhow::Result<()> {
+    pub async fn run(&self) -> anyhow::Result<()> {
+        let executor = self.executor.clone();
         while self.jobs_available() {
             let mut tasks = JoinSet::new();
             for job in self.jobs() {
@@ -121,7 +137,7 @@ impl Runner {
                 let task = async move {
                     match executor.execute(&ctx).await {
                         Ok(res) => {
-                            *states.get_mut(&job_name).unwrap().value_mut() = JobState::Complete;
+                            *states.get_mut(&job_name).unwrap().value_mut() = res.state;
                             artifact_refs
                                 .entry(job_name)
                                 .and_modify(|v| v.extend(res.artifacts.clone()))
@@ -138,6 +154,33 @@ impl Runner {
             sleep(Duration::from_secs(3)).await;
         }
         println!("{:?}", self.states);
+        Ok(())
+    }
+
+    pub async fn cancel(&self) -> anyhow::Result<()> {
+        self.token.cancel();
+        println!("Waiting for jobs to cancel.");
+        loop {
+            // if all jobs have completed or failed there's no need to wait around
+            if self
+                .states
+                .iter()
+                .all(|x| *x.value() == JobState::Complete || *x.value() == JobState::Failed)
+            {
+                break;
+            }
+            if self
+                .states
+                .iter()
+                .any(|x| *x.value() != JobState::Cancelled)
+            {
+                sleep(Duration::from_secs(5)).await;
+            } else {
+                break;
+            }
+            println!("{:?}", self.states);
+        }
+        println!("cancelled all jobs");
         Ok(())
     }
 }
@@ -176,7 +219,10 @@ mod tests {
             {
                 anyhow::bail!("Job {} failed", ctx.job.name);
             }
-            Ok(ExecutionResult { artifacts: vec![] })
+            Ok(ExecutionResult {
+                artifacts: vec![],
+                state: JobState::Complete,
+            })
         }
     }
 
@@ -186,10 +232,10 @@ mod tests {
         pipeline.add_job("job1", "build", "echo test", vec![]);
         pipeline.add_job("job2", "build", "echo test2", vec![]);
 
-        let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
+        let runner = Runner::new(pipeline, executor);
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("job1").unwrap().value(),
@@ -212,11 +258,11 @@ mod tests {
             vec!["build-job".to_string()],
         );
 
-        let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
         executor.set_job_failure("build-job", true);
+        let runner = Runner::new(pipeline, executor);
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("build-job").unwrap().value(),
@@ -235,10 +281,10 @@ mod tests {
         pipeline.add_job("parallel2", "test", "echo 2", vec![]);
         pipeline.add_job("parallel3", "test", "echo 3", vec![]);
 
-        let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
+        let runner = Runner::new(pipeline, executor);
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("parallel1").unwrap().value(),
@@ -269,10 +315,10 @@ mod tests {
             vec!["test1".to_string(), "test2".to_string()],
         );
 
-        let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
+        let runner = Runner::new(pipeline, executor);
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("build").unwrap().value(),
@@ -305,11 +351,11 @@ mod tests {
             vec!["build1".to_string(), "build2".to_string()],
         );
 
-        let runner = Runner::new(pipeline);
         let executor = MockExecutor::new();
         executor.set_job_failure("build1", true);
+        let runner = Runner::new(pipeline, executor);
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("build1").unwrap().value(),
@@ -328,7 +374,7 @@ mod tests {
     #[test]
     fn test_all_parents_match_empty_parents() {
         let pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
-        let runner = Runner::new(pipeline);
+        let runner = Runner::new(pipeline, MockExecutor::new());
 
         assert!(runner.all_parents_match("nonexistent", JobState::Complete));
     }
@@ -336,7 +382,7 @@ mod tests {
     #[test]
     fn test_any_parents_match_empty_parents() {
         let pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
-        let runner = Runner::new(pipeline);
+        let runner = Runner::new(pipeline, MockExecutor::new());
 
         assert!(!runner.any_parents_match("nonexistent", JobState::Failed));
     }
@@ -348,7 +394,7 @@ mod tests {
         pipeline.add_job("build", "build", "echo build", vec![]);
         pipeline.add_job("test", "test", "echo test", vec!["build".to_string()]);
 
-        let runner = Runner::new(pipeline);
+        let runner = Runner::new(pipeline, MockExecutor::new());
 
         // Simulate artifacts from build job
         runner.artifact_refs.insert(
@@ -389,10 +435,9 @@ mod tests {
             vec!["left".to_string(), "right".to_string()],
         );
 
-        let runner = Runner::new(pipeline);
-        let executor = MockExecutor::new();
+        let runner = Runner::new(pipeline, MockExecutor::new());
 
-        runner.submit(executor).await.unwrap();
+        runner.run().await.unwrap();
 
         assert_eq!(
             *runner.states.get("root").unwrap().value(),
