@@ -4,6 +4,7 @@ use crate::executor::{ExecutionContext, Executor};
 use crate::models::ArtifactRef;
 use crate::pipeline::{JobNode, PipelineGraph};
 use dashmap::DashMap;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -21,7 +22,7 @@ pub(crate) fn master_token() -> CancellationToken {
 }
 
 /// State for a Job
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 pub enum JobState {
     Pending,
     Running,
@@ -34,7 +35,7 @@ pub enum JobState {
 #[derive(Clone, Debug)]
 pub struct Runner<E: Executor> {
     graph: PipelineGraph,
-    states: Arc<DashMap<String, JobState>>,
+    pub states: Arc<DashMap<String, JobState>>,
     artifact_refs: Arc<DashMap<String, Vec<ArtifactRef>>>,
     executor: E,
     token: CancellationToken,
