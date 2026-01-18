@@ -38,7 +38,7 @@ jobs:
         - echo "Hello world"
 ```
 
-For more examples, look at the examples folder
+For more examples, look at the examples folder.  
 **note**: This project may change direction at any time. Use at your own peril.
 ## Where will it go from here?
 While I have not yet decided whether I'll turn this into a multi purpose workflow orchestration engine, a pure CI / CD orchestrator, or scrap the whole thing entirely, there are still a few things that would be nice to add such as:
