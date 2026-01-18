@@ -1,0 +1,21 @@
+name: artifacts
+stages:
+  - first
+  - second
+
+jobs:
+  # You can share artifacts with the outside environment
+  - name: write a file
+    stage: first
+    needs: []
+    script:
+      - echo "Hello from file" > hello.txt
+    artifacts:
+      - paths:
+          - "./hello.txt"
+  # Of course you can also read artifacts created by other jobs when depending from them
+  - name: read a file
+    stage: second
+    needs: ["write a file"]
+    script:
+      - cat ./hello.txt
