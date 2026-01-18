@@ -3,8 +3,10 @@ mod models;
 mod pipeline;
 mod runner;
 
+use std::env;
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Context;
 use runner::Runner;
 use serde::{Deserialize, Serialize};
 use tokio::signal;
@@ -64,9 +66,17 @@ struct Job {
 }
 
 #[tokio::main]
-async fn main() {
-    let pipeline = serde_saphyr::from_str(&std::fs::read_to_string("pipeline.yaml").unwrap())
-        .expect("Failed to validate yaml.");
+async fn main() -> anyhow::Result<()> {
+    let args = env::args().collect::<Vec<_>>();
+    if args.len() == 1 {
+        eprintln!("No filename provided");
+        return Ok(());
+    }
+    let file_name = args.get(1).unwrap();
+    let pipeline = serde_saphyr::from_str(
+        &std::fs::read_to_string(file_name).context(format!("failed to read file {file_name}"))?,
+    )
+    .context("Failed to validate yaml input")?;
     let executor = executor::docker::DockerExecutor::new();
     let runner = Arc::new(Runner::new(pipeline, executor));
     let runner2 = runner.clone();
@@ -75,11 +85,12 @@ async fn main() {
             let runner = runner2.clone();
             runner.run().await
         }) => {
-            result.unwrap().unwrap();
+            result.unwrap()?;
         }
         _ = signal::ctrl_c() => {
             println!("Graceful shutdown");
-            runner.cancel().await.unwrap();
+            runner.cancel().await?;
         }
     }
+    Ok(())
 }
