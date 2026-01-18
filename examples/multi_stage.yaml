@@ -7,7 +7,6 @@ stages:
 jobs:
   - name: first job
     stage: stage1
-    needs: []
     script:
       - echo "First job"
   - name: second job

@@ -35,7 +35,7 @@ impl Pipeline {
     }
 
     #[cfg(test)]
-    pub fn add_job(&mut self, name: &str, stage: &str, script: &str, needs: Vec<String>) {
+    pub fn add_job(&mut self, name: &str, stage: &str, script: &str, needs: Option<Vec<String>>) {
         let job = Job {
             name: name.into(),
             script: script.split("\n").map(|x| x.to_string()).collect(),
@@ -58,7 +58,7 @@ struct Artifact {
 struct Job {
     name: String,
     script: Vec<String>,
-    needs: Vec<String>,
+    needs: Option<Vec<String>>,
     stage: String,
     image: Option<String>,
     artifacts: Option<Vec<Artifact>>,

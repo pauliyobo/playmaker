@@ -56,7 +56,7 @@ impl PipelineGraph {
                         artifacts: job.artifacts.clone(),
                         variables: job.variables.clone(),
                     },
-                    job.needs.clone(),
+                    job.needs.clone().unwrap_or_default(),
                 )
             })
             .collect::<Vec<_>>();
@@ -158,8 +158,8 @@ mod tests {
     #[test]
     fn test_job_order_with_dependencies() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["test".into()]);
-        pipeline.add_job("job1", "test", "cd", vec!["job2".into()]);
-        pipeline.add_job("job2", "test", "cd ..", vec![]);
+        pipeline.add_job("job1", "test", "cd", Some(vec!["job2".into()]));
+        pipeline.add_job("job2", "test", "cd ..", None);
         let graph = PipelineGraph::new(pipeline).unwrap();
         let jobs = graph.jobs();
         assert_eq!(jobs[0].name, String::from("job2"))
@@ -169,9 +169,9 @@ mod tests {
     fn test_jobs_order_respected_across_stages() {
         let mut pipeline =
             Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
-        pipeline.add_job("job1", "stage1", "", vec![]);
-        pipeline.add_job("job2", "stage2", "", vec![]);
-        pipeline.add_job("job3", "stage1", "", vec![]);
+        pipeline.add_job("job1", "stage1", "", None);
+        pipeline.add_job("job2", "stage2", "", None);
+        pipeline.add_job("job3", "stage1", "", None);
         let graph = PipelineGraph::new(pipeline).unwrap();
         let mut jobs = graph.jobs().into_iter();
         assert_eq!(jobs.next().unwrap().stage, String::from("stage1"));
@@ -183,8 +183,8 @@ mod tests {
     fn test_job_dependencies() {
         let mut pipeline =
             Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
-        pipeline.add_job("job1", "stage1", "", vec![]);
-        pipeline.add_job("job2", "stage2", "", vec!["job1".to_string()]);
+        pipeline.add_job("job1", "stage1", "", None);
+        pipeline.add_job("job2", "stage2", "", Some(vec!["job1".to_string()]));
         let graph = PipelineGraph::new(pipeline).unwrap();
         assert_eq!(graph.job_dependencies("job1").len(), 1)
     }
@@ -193,7 +193,7 @@ mod tests {
     fn test_pipeline_fails_if_job_has_invalid_stage() {
         let mut pipeline =
             Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
-        pipeline.add_job("job1", "stage3", "", vec![]);
+        pipeline.add_job("job1", "stage3", "", None);
         let graph = PipelineGraph::new(pipeline);
         assert!(graph.is_err());
         assert_eq!(
@@ -206,8 +206,8 @@ mod tests {
     fn test_pipeline_fails_if_invalid_job_dependency() {
         let mut pipeline =
             Pipeline::new("test").with_stages(vec!["stage1".into(), "stage2".into()]);
-        pipeline.add_job("job1", "stage1", "", vec![]);
-        pipeline.add_job("job2", "stage2", "", vec!["job3".into()]);
+        pipeline.add_job("job1", "stage1", "", None);
+        pipeline.add_job("job2", "stage2", "", Some(vec!["job3".into()]));
         let graph = PipelineGraph::new(pipeline);
         assert!(graph.is_err());
         assert_eq!(

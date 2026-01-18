@@ -229,8 +229,8 @@ mod tests {
     #[tokio::test]
     async fn test_runner_simple_pipeline_all_jobs_complete() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
-        pipeline.add_job("job1", "build", "echo test", vec![]);
-        pipeline.add_job("job2", "build", "echo test2", vec![]);
+        pipeline.add_job("job1", "build", "echo test", None);
+        pipeline.add_job("job2", "build", "echo test2", None);
 
         let executor = MockExecutor::new();
         let runner = Runner::new(pipeline, executor);
@@ -250,12 +250,12 @@ mod tests {
     #[tokio::test]
     async fn test_runner_job_failure_propagates_to_dependents() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
-        pipeline.add_job("build-job", "build", "echo build", vec![]);
+        pipeline.add_job("build-job", "build", "echo build", None);
         pipeline.add_job(
             "test-job",
             "test",
             "echo test",
-            vec!["build-job".to_string()],
+            Some(vec!["build-job".to_string()]),
         );
 
         let executor = MockExecutor::new();
@@ -277,9 +277,9 @@ mod tests {
     #[tokio::test]
     async fn test_runner_parallel_jobs_in_same_stage() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["test".into()]);
-        pipeline.add_job("parallel1", "test", "echo 1", vec![]);
-        pipeline.add_job("parallel2", "test", "echo 2", vec![]);
-        pipeline.add_job("parallel3", "test", "echo 3", vec![]);
+        pipeline.add_job("parallel1", "test", "echo 1", None);
+        pipeline.add_job("parallel2", "test", "echo 2", None);
+        pipeline.add_job("parallel3", "test", "echo 3", None);
 
         let executor = MockExecutor::new();
         let runner = Runner::new(pipeline, executor);
@@ -305,14 +305,14 @@ mod tests {
         let mut pipeline =
             Pipeline::new("test").with_stages(vec!["build".into(), "test".into(), "deploy".into()]);
 
-        pipeline.add_job("build", "build", "echo build", vec![]);
-        pipeline.add_job("test1", "test", "echo test1", vec!["build".to_string()]);
-        pipeline.add_job("test2", "test", "echo test2", vec!["build".to_string()]);
+        pipeline.add_job("build", "build", "echo build", None);
+        pipeline.add_job("test1", "test", "echo test1", Some(vec!["build".to_string()]));
+        pipeline.add_job("test2", "test", "echo test2", Some(vec!["build".to_string()]));
         pipeline.add_job(
             "deploy",
             "deploy",
             "echo deploy",
-            vec!["test1".to_string(), "test2".to_string()],
+            Some(vec!["test1".to_string(), "test2".to_string()]),
         );
 
         let executor = MockExecutor::new();
@@ -342,13 +342,13 @@ mod tests {
     async fn test_runner_partial_failure_with_multiple_parents() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
 
-        pipeline.add_job("build1", "build", "echo build1", vec![]);
-        pipeline.add_job("build2", "build", "echo build2", vec![]);
+        pipeline.add_job("build1", "build", "echo build1", None);
+        pipeline.add_job("build2", "build", "echo build2", None);
         pipeline.add_job(
             "test",
             "test",
             "echo test",
-            vec!["build1".to_string(), "build2".to_string()],
+            Some(vec!["build1".to_string(), "build2".to_string()]),
         );
 
         let executor = MockExecutor::new();
@@ -391,8 +391,8 @@ mod tests {
     fn test_build_context_includes_parent_artifacts() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into(), "test".into()]);
 
-        pipeline.add_job("build", "build", "echo build", vec![]);
-        pipeline.add_job("test", "test", "echo test", vec!["build".to_string()]);
+        pipeline.add_job("build", "build", "echo build", None);
+        pipeline.add_job("test", "test", "echo test", Some(vec!["build".to_string()]));
 
         let runner = Runner::new(pipeline, MockExecutor::new());
 
@@ -425,14 +425,14 @@ mod tests {
             "stage3".into(),
         ]);
 
-        pipeline.add_job("root", "stage1", "echo root", vec![]);
-        pipeline.add_job("left", "stage2", "echo left", vec!["root".to_string()]);
-        pipeline.add_job("right", "stage2", "echo right", vec!["root".to_string()]);
+        pipeline.add_job("root", "stage1", "echo root", None);
+        pipeline.add_job("left", "stage2", "echo left", Some(vec!["root".to_string()]));
+        pipeline.add_job("right", "stage2", "echo right", Some(vec!["root".to_string()]));
         pipeline.add_job(
             "merge",
             "stage3",
             "echo merge",
-            vec!["left".to_string(), "right".to_string()],
+            Some(vec!["left".to_string(), "right".to_string()]),
         );
 
         let runner = Runner::new(pipeline, MockExecutor::new());

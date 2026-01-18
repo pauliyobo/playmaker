@@ -5,9 +5,6 @@ stages:
 jobs:
     - name: print hello
       stage: hello
-      # this represents which jobs we depend from, it is a mandatory field,
-      # Will have to change this
-      needs: []
       # by default, the executor uses alpine:3 for the job's image
       script:
         - echo "Hello world"

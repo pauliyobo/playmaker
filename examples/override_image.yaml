@@ -6,6 +6,5 @@ jobs:
   - name: use custom image
     stage: custom
     image: rust:latest
-    needs: []
     script:
       - rustc --version
