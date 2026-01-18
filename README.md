@@ -5,7 +5,7 @@ In any case, this is my attempt at building a workflow orchestration system.
 ## components
 The foundation of this project lays primarily in 3 components:
 
-* a pipeline definition. Earlier I said I wanted it to be a workflow orchestration system but originally this was meant to run CI / CD  pipelines only. So I'll stick with that. The pipeline definition can be represented through yaml, and it is heavily, if not completely inspired from gitlab's CI's sintax.
+* a pipeline definition. Earlier I said I wanted it to be a workflow orchestration system but originally this was meant to run CI / CD  pipelines only. So I'll stick with that. The pipeline definition can be represented through yaml, and it is heavily, if not completely inspired from gitlab's CI's syntax.
 * A runner. The runner is responsible for turning the pipeline into a directed acyclic graph which will have the single jobs as nodes and the relations between them as edges.
 * An executor. The executor will just make sure to run the job in an isolated environment by receiving and returning artifacts that it may need to communicate with other jobs. Currently only a docker executor exists.
 
