@@ -1,0 +1,16 @@
+name: multi stage
+
+stages:
+  - stage1
+  - stage2
+
+jobs:
+  - name: first job
+    stage: stage1
+    script:
+      - echo "First job"
+  - name: second job
+    stage: stage2
+    needs: ["first job"]
+    script:
+      - echo "Second job"

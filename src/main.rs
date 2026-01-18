@@ -4,9 +4,13 @@ mod models;
 mod pipeline;
 mod runner;
 
-use std::collections::HashMap;
+use std::env;
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Context;
+use runner::Runner;
 use serde::{Deserialize, Serialize};
+use tokio::signal;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pipeline {
@@ -32,7 +36,7 @@ impl Pipeline {
     }
 
     #[cfg(test)]
-    pub fn add_job(&mut self, name: &str, stage: &str, script: &str, needs: Vec<String>) {
+    pub fn add_job(&mut self, name: &str, stage: &str, script: &str, needs: Option<Vec<String>>) {
         let job = Job {
             name: name.into(),
             script: script.split("\n").map(|x| x.to_string()).collect(),
@@ -55,15 +59,54 @@ struct Artifact {
 struct Job {
     name: String,
     script: Vec<String>,
-    needs: Vec<String>,
+    needs: Option<Vec<String>>,
     stage: String,
     image: Option<String>,
     artifacts: Option<Vec<Artifact>>,
     variables: Option<HashMap<String, String>>,
 }
 
+/// executes a single pipeline
+async fn run_single(file_name: &str) -> anyhow::Result<()> {
+    let pipeline = serde_saphyr::from_str(
+        &std::fs::read_to_string(file_name).context(format!("failed to read file {file_name}"))?,
+    )
+    .context("Failed to validate yaml input")?;
+    let executor = executor::docker::DockerExecutor::new();
+    let runner = Arc::new(Runner::new(pipeline, executor));
+    let runner2 = runner.clone();
+    tokio::select! {
+        result = tokio::spawn(async move {
+            let runner = runner2.clone();
+            runner.run().await
+        }) => {
+            result.unwrap()?;
+        }
+        _ = signal::ctrl_c() => {
+            println!("Graceful shutdown");
+            runner.cancel().await?;
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    api::setup().await?;
+    let args = env::args().collect::<Vec<_>>();
+    if args.len() == 1 {
+        eprintln!("Usage: {} serve or {} run <file>", &args[0], &args[0]);
+        return Ok(());
+    }
+    let cmd = args.get(1).unwrap();
+    match cmd.as_str() {
+        "serve" => api::setup().await?,
+        "run" if args.len() > 2 => {
+            let file_name = args.get(2).unwrap();
+            run_single(file_name).await?
+        }
+        _ => {
+            eprintln!("Invalid command");
+        }
+    }
     Ok(())
 }
