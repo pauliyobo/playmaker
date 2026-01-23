@@ -3,6 +3,7 @@ use crate::Pipeline;
 use crate::executor::{ExecutionContext, Executor};
 use crate::models::ArtifactRef;
 use crate::pipeline::{JobNode, PipelineGraph};
+use crate::log::Logger;
 use dashmap::DashMap;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -34,11 +35,13 @@ pub enum JobState {
 /// A job Runner responsible for orchestrating and executing jobs and managing
 #[derive(Clone, Debug)]
 pub struct Runner<E: Executor> {
+    pub(crate) name: String,
     graph: PipelineGraph,
     pub states: Arc<DashMap<String, JobState>>,
     artifact_refs: Arc<DashMap<String, Vec<ArtifactRef>>>,
     executor: E,
     token: CancellationToken,
+    pub(crate) logger: Logger,
 }
 
 impl<E: Executor> Runner<E> {
@@ -56,9 +59,11 @@ impl<E: Executor> Runner<E> {
             acc
         });
         ExecutionContext {
+            name: self.name.clone(),
             job: job.clone(),
             artifacts_dir: PathBuf::from("artifacts"),
             dependencies,
+            logger: self.logger.clone(),
         }
     }
 
@@ -96,6 +101,7 @@ impl<E: Executor> Runner<E> {
     }
 
     pub fn new(pipeline: Pipeline, executor: E) -> Self {
+        let name = pipeline.name.clone();
         let graph = PipelineGraph::new(pipeline).expect("Failed to create pipeline");
         let states = graph
             .jobs()
@@ -103,11 +109,13 @@ impl<E: Executor> Runner<E> {
             .map(|x| (x.name.clone(), JobState::Pending))
             .collect::<DashMap<_, _>>();
         Self {
+            name,
             graph,
             states: Arc::new(states),
             artifact_refs: Arc::new(DashMap::new()),
             executor,
             token: master_token(),
+            logger: Logger::new(),
         }
     }
 

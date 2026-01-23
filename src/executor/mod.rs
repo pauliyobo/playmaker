@@ -1,19 +1,30 @@
 //! Unit that handles job execution
 pub mod docker;
 use crate::{models::ArtifactRef, pipeline::JobNode, runner::JobState};
+use crate::log::Logger;
 use std::{collections::HashMap, fs, path::PathBuf};
 
 /// An execution context responsible for keeping information useful to a JobNode
 #[derive(Clone, Debug)]
 pub struct ExecutionContext {
+    /// pipeline name
+    pub name: String,
     /// Node associated to this context
     pub job: JobNode,
     /// Directory in which artifacts will be placed
     pub artifacts_dir: PathBuf,
     /// list of references of artifacts that are collected from previous jobs from which the current one depends
     pub dependencies: Vec<ArtifactRef>,
+    pub logger: Logger,
 }
 
+impl ExecutionContext {
+    pub fn log<S: Into<String>>(&self, message: S) -> anyhow::Result<()> {
+        let message = message.into();
+        self.logger.log(&self.name, &message)?;
+        Ok(())
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ExecutionResult {
     pub artifacts: Vec<ArtifactRef>,

@@ -4,18 +4,22 @@ use crate::{
     runner::{JobState, Runner},
 };
 use anyhow::anyhow;
+use async_stream::stream;
 use axum::{
     Router,
     extract::{Json, Path, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response, sse::{Event, KeepAlive, Sse}},
     routing::{get, post},
 };
 use dashmap::DashMap;
+use futures_util::{Stream, pin_mut};
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -103,10 +107,26 @@ async fn get_pipeline_status(
     Ok(Json(None))
 }
 
+async fn get_pipeline_logs(
+    State(state): State<AppState>,
+    Path(pipeline_id): Path<Uuid>,
+) -> Response {
+    let Some(runner) = state.runners.get(&pipeline_id) else {
+        return "not found".into_response();
+    };
+    let mut rx = runner.logger.subscribe(&runner.name);
+    let s = BroadcastStream::new(rx).map(|x| -> Result<Event, Infallible> {
+        let x = x.unwrap_or("error".to_string());
+        Ok(Event::default().data(x))
+    });
+    Sse::new(s).keep_alive(KeepAlive::default()).into_response()
+}
+
 fn router(state: &AppState) -> Router {
     Router::new()
         .route("/pipelines", post(create_pipeline))
         .route("/pipelines/{pipeline_id}", get(get_pipeline_status))
+        .route("/pipelines/{pipeline_id}/logs", get(get_pipeline_logs))
         .with_state(state.clone())
 }
 

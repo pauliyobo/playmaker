@@ -1,7 +1,5 @@
 use crate::{
-    executor::ExecutionResult,
-    models::ArtifactRef,
-    runner::{JobState, master_token},
+    executor::ExecutionResult, log::Logger, models::ArtifactRef, runner::{JobState, master_token}
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -39,7 +37,7 @@ impl DockerExecutor {
         Self { client, token }
     }
 
-    async fn exec_command(&self, id: &str, cmd: &[&str]) -> anyhow::Result<()> {
+    async fn exec_command(&self, ctx: &ExecutionContext, id: &str, cmd: &[&str]) -> anyhow::Result<()> {
         let mut script = String::from("set -e\n");
         script.push_str(&cmd.join("\n"));
         let exec = self
@@ -63,7 +61,7 @@ impl DockerExecutor {
             let read_task = async move {
                 while let Some(msg) = output.next().await {
                     match msg {
-                        Ok(msg) => println!("{msg}"),
+                        Ok(msg) => ctx.log(format!("{msg}")).unwrap(),
                         Err(e) => println!("Error: {:?}", e),
                     }
                 }
@@ -91,12 +89,13 @@ impl DockerExecutor {
 
     async fn finish(
         &self,
+        ctx: &ExecutionContext,
         container_id: Option<String>,
         artifacts: Vec<ArtifactRef>,
         state: JobState,
     ) -> anyhow::Result<ExecutionResult> {
         if let Some(id) = container_id {
-            println!("Removing container {}", &id);
+            ctx.log(format!("Removing container {}", &id))?;
             self.client
                 .remove_container(
                     &id,
@@ -118,7 +117,7 @@ impl Executor for DockerExecutor {
         let result = self
             .token
             .run_until_cancelled(async move {
-                println!("Creating image");
+                ctx.log(format!("Creating image"))?;
                 let image = job.image.unwrap_or(IMAGE.to_string());
                 let env = ctx
                     .environment_variables()
@@ -158,17 +157,17 @@ impl Executor for DockerExecutor {
         let id = guard.clone();
         match result {
             None => {
-                return self.finish(id, artifact_refs, JobState::Cancelled).await;
+                return self.finish(ctx, id, artifact_refs, JobState::Cancelled).await;
             }
             Some(status) => {
                 // we are interested in failing only if there was an error while bootstrapping
                 if status.is_err() {
-                    return self.finish(id, artifact_refs, JobState::Failed).await;
+                    return self.finish(ctx, id, artifact_refs, JobState::Failed).await;
                 }
             }
         }
         let id = id.unwrap();
-        println!("Created container {}", id);
+        ctx.log(format!("Created container {}", id))?;
         let res: Option<anyhow::Result<()>> = self
             .token
             .run_until_cancelled(async {
@@ -176,7 +175,7 @@ impl Executor for DockerExecutor {
                 self.client
                     .start_container(&id, None::<StartContainerOptions>)
                     .await?;
-                println!("Started container {}", id);
+                ctx.log(format!("Started container {}", id))?;
                 for dep in ctx.dependencies.iter() {
                     let mut buf = PathBuf::from(&dep.path);
                     if buf.file_name().is_some() {
@@ -204,6 +203,7 @@ impl Executor for DockerExecutor {
                 // we don't unwrap the result now because we want the container to be cleaned up properly
                 let res = self
                     .exec_command(
+                        ctx,
                         &id,
                         job.script
                             .iter()
@@ -248,7 +248,7 @@ impl Executor for DockerExecutor {
                 Err(_) => JobState::Failed,
             },
         };
-        self.finish(Some(id), artifact_refs, state).await
+        self.finish(ctx, Some(id), artifact_refs, state).await
     }
 
     async fn cancel(&self) -> anyhow::Result<()> {

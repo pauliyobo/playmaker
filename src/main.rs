@@ -1,5 +1,6 @@
 mod api;
 mod executor;
+mod log;
 mod models;
 mod pipeline;
 mod runner;
