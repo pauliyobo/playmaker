@@ -135,7 +135,11 @@ impl Runner {
                     *entry.value_mut() = JobState::Running;
                 }
                 let ctx = self.build_context(&job);
-                let executor = self.registry.get(&self.default_executor).unwrap();
+                let Some(executor) = self.registry.get(&self.default_executor) else {
+                    println!("Marking {job_name} as failed because of invalid executor");
+                    *self.states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed;
+                    continue;
+                };
                 let states = self.states.clone();
                 let artifact_refs = self.artifact_refs.clone();
                 let task = async move {
