@@ -81,10 +81,14 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let file_name = args.get(1).unwrap();
-    let pipeline = serde_saphyr::from_str(
+    let mut pipeline: Pipeline = serde_saphyr::from_str(
         &std::fs::read_to_string(file_name).context(format!("failed to read file {file_name}"))?,
     )
     .context("Failed to validate yaml input")?;
+    // if no default executor was set for the pipeline, we use the default executor defined by us
+    if pipeline.executor.is_none() {
+        pipeline.executor = Some(DEFAULT_EXECUTOR.into());
+    }
     let executor = executor::docker::DockerExecutor::new();
     let registry = ExecutorRegistry::default();
     registry.register(executor);
