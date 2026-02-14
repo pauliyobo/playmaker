@@ -3,6 +3,7 @@ use crate::Pipeline;
 use crate::executor::{ExecutionContext, Executor};
 use crate::models::ArtifactRef;
 use crate::pipeline::{JobNode, PipelineGraph};
+use crate::registry::ExecutorRegistry;
 use dashmap::DashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,16 +32,17 @@ pub enum JobState {
 }
 
 /// A job Runner responsible for orchestrating and executing jobs and managing
-#[derive(Clone, Debug)]
-pub struct Runner<E: Executor> {
+#[derive(Clone)]
+pub struct Runner {
     graph: PipelineGraph,
     states: Arc<DashMap<String, JobState>>,
     artifact_refs: Arc<DashMap<String, Vec<ArtifactRef>>>,
-    executor: E,
     token: CancellationToken,
+    registry: ExecutorRegistry,
+    default_executor: String,
 }
 
-impl<E: Executor> Runner<E> {
+impl Runner {
     pub fn build_context(&self, job: &JobNode) -> ExecutionContext {
         let parents = self.graph.job_parents(&job.name);
         let dependencies = parents.into_iter().fold(vec![], |mut acc, x| {
@@ -58,6 +60,7 @@ impl<E: Executor> Runner<E> {
             job: job.clone(),
             artifacts_dir: PathBuf::from("artifacts"),
             dependencies,
+            registry: self.registry.clone(),
         }
     }
 
@@ -94,7 +97,8 @@ impl<E: Executor> Runner<E> {
             .any(|x| *self.states.get(&x.name).unwrap().value() == state)
     }
 
-    pub fn new(pipeline: Pipeline, executor: E) -> Self {
+    pub fn new(pipeline: Pipeline, registry: &ExecutorRegistry) -> Self {
+        let default_executor = pipeline.executor.clone().unwrap();
         let graph = PipelineGraph::new(pipeline).expect("Failed to create pipeline");
         let states = graph
             .jobs()
@@ -105,13 +109,13 @@ impl<E: Executor> Runner<E> {
             graph,
             states: Arc::new(states),
             artifact_refs: Arc::new(DashMap::new()),
-            executor,
             token: master_token(),
+            registry: registry.clone(),
+            default_executor,
         }
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
-        let executor = self.executor.clone();
         while self.jobs_available() {
             let mut tasks = JoinSet::new();
             for job in self.jobs() {
@@ -131,7 +135,7 @@ impl<E: Executor> Runner<E> {
                     *entry.value_mut() = JobState::Running;
                 }
                 let ctx = self.build_context(&job);
-                let executor = executor.clone();
+                let executor = self.registry.get(&self.default_executor).unwrap();
                 let states = self.states.clone();
                 let artifact_refs = self.artifact_refs.clone();
                 let task = async move {
@@ -210,6 +214,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Executor for MockExecutor {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
         async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult> {
             if self
                 .should_fail
@@ -226,14 +234,19 @@ mod tests {
         }
     }
 
+    fn setup_registry() -> ExecutorRegistry {
+        let registry = ExecutorRegistry::default();
+        registry.register(MockExecutor::new());
+        registry
+    }
+
     #[tokio::test]
     async fn test_runner_simple_pipeline_all_jobs_complete() {
         let mut pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
         pipeline.add_job("job1", "build", "echo test", None);
         pipeline.add_job("job2", "build", "echo test2", None);
 
-        let executor = MockExecutor::new();
-        let runner = Runner::new(pipeline, executor);
+        let runner = Runner::new(pipeline, &setup_registry());
 
         runner.run().await.unwrap();
 
@@ -258,9 +271,11 @@ mod tests {
             Some(vec!["build-job".to_string()]),
         );
 
-        let executor = MockExecutor::new();
+        let mut executor = MockExecutor::new();
         executor.set_job_failure("build-job", true);
-        let runner = Runner::new(pipeline, executor);
+        let registry = ExecutorRegistry::default();
+        registry.register(executor);
+        let runner = Runner::new(pipeline, &registry);
 
         runner.run().await.unwrap();
 
@@ -281,8 +296,7 @@ mod tests {
         pipeline.add_job("parallel2", "test", "echo 2", None);
         pipeline.add_job("parallel3", "test", "echo 3", None);
 
-        let executor = MockExecutor::new();
-        let runner = Runner::new(pipeline, executor);
+        let runner = Runner::new(pipeline, &setup_registry());
 
         runner.run().await.unwrap();
 
@@ -306,8 +320,18 @@ mod tests {
             Pipeline::new("test").with_stages(vec!["build".into(), "test".into(), "deploy".into()]);
 
         pipeline.add_job("build", "build", "echo build", None);
-        pipeline.add_job("test1", "test", "echo test1", Some(vec!["build".to_string()]));
-        pipeline.add_job("test2", "test", "echo test2", Some(vec!["build".to_string()]));
+        pipeline.add_job(
+            "test1",
+            "test",
+            "echo test1",
+            Some(vec!["build".to_string()]),
+        );
+        pipeline.add_job(
+            "test2",
+            "test",
+            "echo test2",
+            Some(vec!["build".to_string()]),
+        );
         pipeline.add_job(
             "deploy",
             "deploy",
@@ -315,8 +339,7 @@ mod tests {
             Some(vec!["test1".to_string(), "test2".to_string()]),
         );
 
-        let executor = MockExecutor::new();
-        let runner = Runner::new(pipeline, executor);
+        let runner = Runner::new(pipeline, &setup_registry());
 
         runner.run().await.unwrap();
 
@@ -351,9 +374,11 @@ mod tests {
             Some(vec!["build1".to_string(), "build2".to_string()]),
         );
 
-        let executor = MockExecutor::new();
+        let registry = ExecutorRegistry::default();
+        let mut executor = MockExecutor::new();
         executor.set_job_failure("build1", true);
-        let runner = Runner::new(pipeline, executor);
+        registry.register(executor);
+        let runner = Runner::new(pipeline, &registry);
 
         runner.run().await.unwrap();
 
@@ -374,7 +399,7 @@ mod tests {
     #[test]
     fn test_all_parents_match_empty_parents() {
         let pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
-        let runner = Runner::new(pipeline, MockExecutor::new());
+        let runner = Runner::new(pipeline, &setup_registry());
 
         assert!(runner.all_parents_match("nonexistent", JobState::Complete));
     }
@@ -382,7 +407,7 @@ mod tests {
     #[test]
     fn test_any_parents_match_empty_parents() {
         let pipeline = Pipeline::new("test").with_stages(vec!["build".into()]);
-        let runner = Runner::new(pipeline, MockExecutor::new());
+        let runner = Runner::new(pipeline, &setup_registry());
 
         assert!(!runner.any_parents_match("nonexistent", JobState::Failed));
     }
@@ -394,7 +419,7 @@ mod tests {
         pipeline.add_job("build", "build", "echo build", None);
         pipeline.add_job("test", "test", "echo test", Some(vec!["build".to_string()]));
 
-        let runner = Runner::new(pipeline, MockExecutor::new());
+        let runner = Runner::new(pipeline, &setup_registry());
 
         // Simulate artifacts from build job
         runner.artifact_refs.insert(
@@ -426,8 +451,18 @@ mod tests {
         ]);
 
         pipeline.add_job("root", "stage1", "echo root", None);
-        pipeline.add_job("left", "stage2", "echo left", Some(vec!["root".to_string()]));
-        pipeline.add_job("right", "stage2", "echo right", Some(vec!["root".to_string()]));
+        pipeline.add_job(
+            "left",
+            "stage2",
+            "echo left",
+            Some(vec!["root".to_string()]),
+        );
+        pipeline.add_job(
+            "right",
+            "stage2",
+            "echo right",
+            Some(vec!["root".to_string()]),
+        );
         pipeline.add_job(
             "merge",
             "stage3",
@@ -435,7 +470,7 @@ mod tests {
             Some(vec!["left".to_string(), "right".to_string()]),
         );
 
-        let runner = Runner::new(pipeline, MockExecutor::new());
+        let runner = Runner::new(pipeline, &setup_registry());
 
         runner.run().await.unwrap();
 

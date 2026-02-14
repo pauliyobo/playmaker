@@ -110,6 +110,10 @@ impl DockerExecutor {
 
 #[async_trait::async_trait]
 impl Executor for DockerExecutor {
+    fn name(&self) -> &str {
+        "docker"
+    }
+
     async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult> {
         let mut artifact_refs = Vec::new();
         let container_id = Arc::new(Mutex::new(None));
