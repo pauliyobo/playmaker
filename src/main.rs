@@ -1,6 +1,7 @@
 mod executor;
 mod models;
 mod pipeline;
+mod registry;
 mod runner;
 
 use std::env;
@@ -11,11 +12,16 @@ use runner::Runner;
 use serde::{Deserialize, Serialize};
 use tokio::signal;
 
+use crate::registry::ExecutorRegistry;
+
+const DEFAULT_EXECUTOR: &str = "docker";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Pipeline {
     name: String,
     stages: Vec<String>,
     jobs: Vec<Job>,
+    executor: Option<String>,
 }
 
 impl Pipeline {
@@ -25,6 +31,7 @@ impl Pipeline {
             name: name.into(),
             stages: Vec::new(),
             jobs: Vec::new(),
+            executor: Some("mock".into()),
         }
     }
 
@@ -50,7 +57,7 @@ impl Pipeline {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct Artifact {
+pub struct Artifact {
     paths: Vec<String>,
 }
 
@@ -63,6 +70,7 @@ struct Job {
     image: Option<String>,
     artifacts: Option<Vec<Artifact>>,
     variables: Option<HashMap<String, String>>,
+    executor: Option<String>,
 }
 
 #[tokio::main]
@@ -73,12 +81,18 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let file_name = args.get(1).unwrap();
-    let pipeline = serde_saphyr::from_str(
+    let mut pipeline: Pipeline = serde_saphyr::from_str(
         &std::fs::read_to_string(file_name).context(format!("failed to read file {file_name}"))?,
     )
     .context("Failed to validate yaml input")?;
+    // if no default executor was set for the pipeline, we use the default executor defined by us
+    if pipeline.executor.is_none() {
+        pipeline.executor = Some(DEFAULT_EXECUTOR.into());
+    }
     let executor = executor::docker::DockerExecutor::new();
-    let runner = Arc::new(Runner::new(pipeline, executor));
+    let registry = ExecutorRegistry::default();
+    registry.register(executor);
+    let runner = Arc::new(Runner::new(pipeline, &registry));
     let runner2 = runner.clone();
     tokio::select! {
         result = tokio::spawn(async move {

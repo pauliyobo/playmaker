@@ -11,6 +11,7 @@ async-trait = "0.1.89"
 bollard = "0.19.3"
 bytes = "1.10.1"
 dashmap = { version = "6.1.0", features = ["serde"] }
+dyn-clone = "1.0.20"
 futures-util = "0.3.31"
 itertools = "0.13.0"
 petgraph = "0.6.5"
