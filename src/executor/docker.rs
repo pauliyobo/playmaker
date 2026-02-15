@@ -1,5 +1,7 @@
 use crate::{
-    executor::ExecutionResult, log::Logger, models::ArtifactRef, runner::{JobState, master_token}
+    executor::ExecutionResult,
+    models::ArtifactRef,
+    runner::{JobState, master_token},
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -37,7 +39,12 @@ impl DockerExecutor {
         Self { client, token }
     }
 
-    async fn exec_command(&self, ctx: &ExecutionContext, id: &str, cmd: &[&str]) -> anyhow::Result<()> {
+    async fn exec_command(
+        &self,
+        ctx: &ExecutionContext,
+        id: &str,
+        cmd: &[&str],
+    ) -> anyhow::Result<()> {
         let mut script = String::from("set -e\n");
         script.push_str(&cmd.join("\n"));
         let exec = self
@@ -109,6 +116,10 @@ impl DockerExecutor {
 
 #[async_trait::async_trait]
 impl Executor for DockerExecutor {
+    fn name(&self) -> &str {
+        "docker"
+    }
+
     async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult> {
         let mut artifact_refs = Vec::new();
         let container_id = Arc::new(Mutex::new(None));
@@ -157,7 +168,9 @@ impl Executor for DockerExecutor {
         let id = guard.clone();
         match result {
             None => {
-                return self.finish(ctx, id, artifact_refs, JobState::Cancelled).await;
+                return self
+                    .finish(ctx, id, artifact_refs, JobState::Cancelled)
+                    .await;
             }
             Some(status) => {
                 // we are interested in failing only if there was an error while bootstrapping

@@ -1,6 +1,6 @@
-use tokio::sync::broadcast;
-use std::sync::Arc;
 use dashmap::DashMap;
+use std::sync::Arc;
+use tokio::sync::broadcast;
 
 /// Logger for a workflow
 /// The logger will be responsible for receiving data from all jobs and it will broadcast them to interested consumers

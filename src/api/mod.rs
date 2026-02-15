@@ -1,20 +1,21 @@
 use crate::{
     Pipeline,
-    executor::docker::DockerExecutor,
+    registry::ExecutorRegistry,
     runner::{JobState, Runner},
 };
 use anyhow::anyhow;
-use async_stream::stream;
 use axum::{
     Router,
     extract::{Json, Path, State},
     http::StatusCode,
-    response::{IntoResponse, Response, sse::{Event, KeepAlive, Sse}},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::{get, post},
 };
 use dashmap::DashMap;
-use futures_util::{Stream, pin_mut};
-use futures_util::{stream, StreamExt};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::net::TcpListener;
@@ -42,16 +43,19 @@ impl IntoResponse for APIError {
 
 type Result<T, E = APIError> = anyhow::Result<T, E>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     /// active pipelines
-    pub runners: Arc<DashMap<Uuid, Runner<DockerExecutor>>>,
+    pub runners: Arc<DashMap<Uuid, Runner>>,
+    /// executor registry
+    pub registry: ExecutorRegistry,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(registry: &ExecutorRegistry) -> Self {
         Self {
             runners: Arc::new(DashMap::new()),
+            registry: registry.clone(),
         }
     }
 }
@@ -80,8 +84,7 @@ async fn create_pipeline(
     let pipeline: Pipeline =
         serde_saphyr::from_str(&payload.text).map_err(|e| APIError::from(anyhow!(e)))?;
     let uuid = Uuid::new_v4();
-    let executor = DockerExecutor::new();
-    let runner = Runner::new(pipeline, executor);
+    let runner = Runner::new(pipeline, &state.registry);
     state.runners.insert(uuid.clone(), runner.clone());
     tokio::spawn(async move {
         runner.run().await.unwrap();
@@ -114,7 +117,7 @@ async fn get_pipeline_logs(
     let Some(runner) = state.runners.get(&pipeline_id) else {
         return "not found".into_response();
     };
-    let mut rx = runner.logger.subscribe(&runner.name);
+    let rx = runner.logger.subscribe(&runner.name);
     let s = BroadcastStream::new(rx).map(|x| -> Result<Event, Infallible> {
         let x = x.unwrap_or("error".to_string());
         Ok(Event::default().data(x))
@@ -130,8 +133,8 @@ fn router(state: &AppState) -> Router {
         .with_state(state.clone())
 }
 
-pub async fn setup() -> anyhow::Result<()> {
-    let state = AppState::new();
+pub async fn setup(registry: &ExecutorRegistry) -> anyhow::Result<()> {
+    let state = AppState::new(registry);
     let router = Router::new().merge(router(&state));
     let listener = TcpListener::bind("0.0.0.0:8000").await?;
     println!("Listening on port 8000");

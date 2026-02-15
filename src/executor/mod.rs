@@ -1,11 +1,13 @@
 //! Unit that handles job execution
 pub mod docker;
-use crate::{models::ArtifactRef, pipeline::JobNode, runner::JobState};
 use crate::log::Logger;
+use dyn_clone::DynClone;
+
+use crate::{models::ArtifactRef, pipeline::JobNode, registry::ExecutorRegistry, runner::JobState};
 use std::{collections::HashMap, fs, path::PathBuf};
 
 /// An execution context responsible for keeping information useful to a JobNode
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ExecutionContext {
     /// pipeline name
     pub name: String,
@@ -16,6 +18,8 @@ pub struct ExecutionContext {
     /// list of references of artifacts that are collected from previous jobs from which the current one depends
     pub dependencies: Vec<ArtifactRef>,
     pub logger: Logger,
+    /// executor registry    
+    pub registry: ExecutorRegistry,
 }
 
 impl ExecutionContext {
@@ -55,9 +59,12 @@ impl ExecutionContext {
 }
 
 #[async_trait::async_trait]
-pub trait Executor: Clone + Send + Sync + 'static {
+pub trait Executor: DynClone + Send + Sync + 'static {
+    fn name(&self) -> &str;
     async fn execute(&self, ctx: &ExecutionContext) -> anyhow::Result<ExecutionResult>;
     async fn cancel(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }
+
+dyn_clone::clone_trait_object!(Executor);
