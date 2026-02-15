@@ -64,6 +64,15 @@ impl Runner {
         }
     }
 
+    /// obtains the correct executor to use with each job
+    fn resolve_executor(&self, job: &JobNode) -> anyhow::Result<Box<dyn Executor>> {
+        let executor_name = job.executor.as_ref().unwrap_or(&self.default_executor);
+        let Some(executor) = self.registry.get(&executor_name) else {
+            anyhow::bail!("Invalid executor");
+        };
+        Ok(executor)
+    }
+
     /// Returns true when there are jobs that are still waiting to be run
     pub fn jobs_available(&self) -> bool {
         self.states.iter().any(|x| x.value() == &JobState::Pending)
@@ -135,7 +144,7 @@ impl Runner {
                     *entry.value_mut() = JobState::Running;
                 }
                 let ctx = self.build_context(&job);
-                let Some(executor) = self.registry.get(&self.default_executor) else {
+                let Ok(executor) = self.resolve_executor(&job) else {
                     println!("Marking {job_name} as failed because of invalid executor");
                     *self.states.get_mut(&job_name).unwrap().value_mut() = JobState::Failed;
                     continue;

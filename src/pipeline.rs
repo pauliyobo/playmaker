@@ -26,6 +26,7 @@ pub struct JobNode {
     pub image: Option<String>,
     pub artifacts: Option<Vec<Artifact>>,
     pub variables: Option<HashMap<String, String>>,
+    pub executor: Option<String>,
 }
 
 /// pipeline graph
@@ -55,6 +56,7 @@ impl PipelineGraph {
                         image: job.image.clone(),
                         artifacts: job.artifacts.clone(),
                         variables: job.variables.clone(),
+                        executor: job.executor.clone(),
                     },
                     job.needs.clone().unwrap_or_default(),
                 )

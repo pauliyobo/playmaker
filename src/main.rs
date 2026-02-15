@@ -57,7 +57,7 @@ impl Pipeline {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-struct Artifact {
+pub struct Artifact {
     paths: Vec<String>,
 }
 
